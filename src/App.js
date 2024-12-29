@@ -21,23 +21,17 @@ const App = () => {
       case 'FCFS':
         setResults(fcfsScheduling(processes));
         break;
-      case 'SJF-Preemptive':
-        setResults(sjfPreemptiveScheduling(processes));
-        break;
       case 'SJF-NonPreemptive':
         setResults(sjfNonPreemptiveScheduling(processes));
         break;
-      case 'RoundRobin':
-        setResults(roundRobinScheduling(processes));
-        break;
       case 'Priority':
-        setResults(priorityScheduling(processes));
+        setResults(priorityPreemptiveScheduling(processes)); // Use priorityPreemptiveScheduling here
         break;
       default:
         break;
     }
   };
-
+  
   return (
     <div className="App">
       <h1>Process Scheduling</h1>
@@ -45,9 +39,7 @@ const App = () => {
         <label>Select Scheduling Algorithm:</label>
         <select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)}>
           <option value="FCFS">FCFS</option>
-          <option value="SJF-Preemptive">Shortest Job First (Preemptive)</option>
           <option value="SJF-NonPreemptive">Shortest Job First (Non-Preemptive)</option>
-          <option value="RoundRobin">Round Robin</option>
           <option value="Priority">Priority Scheduling</option>
         </select>
       </div>
@@ -174,57 +166,6 @@ const fcfsScheduling = (processes) => {
   return results;
 };
 
-const sjfPreemptiveScheduling = (processes) => {
-  const sortedProcesses = [...processes].sort((a, b) => a.arrival - b.arrival);
-  const results = [];
-  const remainingBurst = {};
-  let currentTime = 0;
-  let completed = 0;
-
-  sortedProcesses.forEach((p) => {
-    remainingBurst[p.id] = p.burst;
-  });
-
-  while (completed < processes.length) {
-    const availableProcesses = sortedProcesses.filter(
-      (p) => p.arrival <= currentTime && remainingBurst[p.id] > 0
-    );
-
-    if (availableProcesses.length === 0) {
-      currentTime++;
-      continue;
-    }
-
-    const shortest = availableProcesses.reduce((a, b) =>
-      remainingBurst[a.id] < remainingBurst[b.id] ? a : b
-    );
-
-    remainingBurst[shortest.id]--;
-    currentTime++;
-
-    if (remainingBurst[shortest.id] === 0) {
-      const end = currentTime;
-      const start = end - shortest.burst;
-      const waiting = start - shortest.arrival;
-      const turnaround = end - shortest.arrival;
-      const response = start - shortest.arrival;
-
-      results.push({
-        id: shortest.id,
-        start,
-        end,
-        waiting,
-        turnaround,
-        response, // Include response time
-      });
-
-      completed++;
-    }
-  }
-
-  return results;
-};
-
 const sjfNonPreemptiveScheduling = (processes) => {
   const sortedProcesses = [...processes].sort((a, b) => a.arrival - b.arrival);
   let currentTime = 0;
@@ -271,73 +212,67 @@ const sjfNonPreemptiveScheduling = (processes) => {
 };
 
 
-const roundRobinScheduling = (processes) => {
-  const quantum = 2; // Set a quantum time
-  const queue = [...processes];
+const priorityPreemptiveScheduling = (processes) => {
+  // Sort processes by arrival time first
+  const sortedProcesses = [...processes].sort((a, b) => a.arrival - b.arrival);
+  let currentTime = 0;
   const results = [];
   const remainingBurst = {};
-  let currentTime = 0;
+  const startTimes = {};
 
-  queue.forEach((p) => {
-    remainingBurst[p.id] = p.burst;
+  // Initialize remaining burst times
+  sortedProcesses.forEach((process) => {
+    remainingBurst[process.id] = process.burst;
   });
 
-  while (queue.length > 0) {
-    const process = queue.shift();
+  while (sortedProcesses.length > 0) {
+    // Filter processes that have arrived and not yet completed
+    const availableProcesses = sortedProcesses.filter(
+      (p) => p.arrival <= currentTime && remainingBurst[p.id] > 0
+    );
 
-    const executionTime = Math.min(quantum, remainingBurst[process.id]);
-    const start = currentTime;
-    const end = currentTime + executionTime;
+    if (availableProcesses.length === 0) {
+      currentTime++;
+      continue;
+    }
 
-    remainingBurst[process.id] -= executionTime;
-    currentTime = end;
+    // Select the process with the highest priority (higher number means higher priority)
+    const highestPriorityProcess = availableProcesses.reduce((a, b) =>
+      a.priority > b.priority ? a : b
+    );
 
-    if (remainingBurst[process.id] === 0) {
-      const waiting = start - process.arrival;
-      const turnaround = end - process.arrival;
-      const response = start - process.arrival;
+    // Set start time if it's the first time the process is being executed
+    if (!(highestPriorityProcess.id in startTimes)) {
+      startTimes[highestPriorityProcess.id] = currentTime;
+    }
+
+    // Execute the process for 1 unit of time (preemptive)
+    remainingBurst[highestPriorityProcess.id]--;
+    currentTime++;
+
+    // If the process is completed
+    if (remainingBurst[highestPriorityProcess.id] === 0) {
+      const end = currentTime;
+      const turnaround = end - highestPriorityProcess.arrival;
+      const waiting = turnaround - highestPriorityProcess.burst;
+      const response = startTimes[highestPriorityProcess.id] - highestPriorityProcess.arrival;
 
       results.push({
-        id: process.id,
-        start,
+        id: highestPriorityProcess.id,
+        start: startTimes[highestPriorityProcess.id],
         end,
         waiting,
         turnaround,
-        response, // Include response time
+        response,
       });
-    } else {
-      queue.push({ ...process, arrival: currentTime });
+
+      // Remove the process from the list as it is completed
+      sortedProcesses.splice(sortedProcesses.indexOf(highestPriorityProcess), 1);
     }
   }
 
   return results;
 };
 
-const priorityScheduling = (processes) => {
-  const sortedProcesses = [...processes].sort((a, b) => a.priority - b.priority || a.arrival - b.arrival);
-  let currentTime = 0;
-  const results = [];
-
-  sortedProcesses.forEach((process) => {
-    const start = Math.max(currentTime, process.arrival);
-    const end = start + process.burst;
-    const waiting = start - process.arrival;
-    const turnaround = end - process.arrival;
-    const response = start - process.arrival;
-
-    results.push({
-      id: process.id,
-      start,
-      end,
-      waiting,
-      turnaround,
-      response, // Include response time
-    });
-
-    currentTime = end;
-  });
-
-  return results;
-};
-
 export default App;
+
